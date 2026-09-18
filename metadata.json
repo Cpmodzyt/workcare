@@ -1,0 +1,6 @@
+{
+  "name": "Work Care",
+  "description": "Company facility problem-reporting and staff-management system with role-based dashboards, messaging, and bilingual Sinhala and English support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

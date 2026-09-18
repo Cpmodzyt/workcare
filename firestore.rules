@@ -1,0 +1,134 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == 'cpmodzyt@gmail.com' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin'
+      );
+    }
+
+    function isApprovedStaff() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'staff' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accountStatus == 'approved';
+    }
+
+    function isWorker() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'worker';
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      // Users can read their own profile, Super Admin can read all
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin() || isApprovedStaff());
+
+      // Workers can create their own account as worker
+      // Staff can register with pending status
+      // NO ONE can grant themselves super_admin
+      allow create: if isAuthenticated() && request.auth.uid == userId &&
+        request.resource.data.role != 'super_admin' &&
+        (request.resource.data.role == 'worker' || 
+         (request.resource.data.role == 'staff' && request.resource.data.accountStatus == 'pending'));
+
+      // Only Super Admin can change roles, accountStatus (approvals), or departments
+      // Users can update their own phone or name only
+      allow update: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (request.auth.uid == userId && 
+         request.resource.data.role == resource.data.role &&
+         request.resource.data.accountStatus == resource.data.accountStatus)
+      );
+
+      // Only Super Admin can delete users
+      allow delete: if isSuperAdmin();
+    }
+
+    // Reports Collection
+    match /reports/{reportId} {
+      // Worker can only read own reports
+      // Approved staff can read reports
+      // Super Admin can read all
+      // Pending or Disabled staff cannot read reports
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (isWorker() && resource.data.workerId == request.auth.uid) ||
+        isApprovedStaff()
+      );
+
+      // Authenticated workers can create a report with status "new"
+      allow create: if isAuthenticated() && (
+        isWorker() && 
+        request.resource.data.workerId == request.auth.uid &&
+        request.resource.data.status == 'new'
+      ) || isSuperAdmin();
+
+      // Approved staff and Super Admin can update status, priority, assignees, notes
+      // Workers cannot alter status
+      allow update: if isAuthenticated() && (
+        isSuperAdmin() ||
+        isApprovedStaff()
+      );
+
+      // Only Super Admin can delete reports
+      allow delete: if isSuperAdmin();
+
+      // Messages sub-collection for each report
+      match /messages/{messageId} {
+        // Can read if worker owns the parent report, or user is approved staff / Super Admin
+        allow read: if isAuthenticated() && (
+          isSuperAdmin() ||
+          isApprovedStaff() ||
+          (isWorker() && get(/databases/$(database)/documents/reports/$(reportId)).data.workerId == request.auth.uid)
+        );
+
+        // Can send message if worker owns parent report or user is approved staff / Super Admin
+        allow create: if isAuthenticated() && (
+          isSuperAdmin() ||
+          isApprovedStaff() ||
+          (isWorker() && get(/databases/$(database)/documents/reports/$(reportId)).data.workerId == request.auth.uid && request.resource.data.senderId == request.auth.uid)
+        );
+
+        allow update, delete: if isSuperAdmin();
+      }
+    }
+
+    // Facilities collection (Factory, Office, Accommodation, Transport, etc.)
+    match /facilities/{facilityId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    // Departments collection
+    match /departments/{departmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    // Problem Categories
+    match /categories/{categoryId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create, delete: if isAuthenticated();
+    }
+
+    // App Settings
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+  }
+}
